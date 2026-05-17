@@ -1,0 +1,23 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.child('hostId').val() == auth.uid || !data.child('players').hasChildren())",
+        "players": {
+          "$playerId": {
+            ".write": "auth != null && $playerId == auth.uid"
+          }
+        }
+      }
+    },
+    "history": {
+      "$historyId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
