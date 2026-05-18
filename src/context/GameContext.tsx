@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { auth, rtdb } from '../config/firebase'; // 👈 Solo importamos auth y rtdb
+import { auth, rtdb } from '../config/firebase'; 
 import { signInAnonymously } from 'firebase/auth';
-import { ref, push, set, update, onValue, get } from "firebase/database"; // 👈 Métodos nativos de RTDB
+import { ref, push, set, update, onValue, get } from "firebase/database"; // 👈 Usamos los métodos de RTDB
 import { calculateSpin } from '../utils/physics';
 import type { Wedge } from '../utils/physics';
 
@@ -11,11 +11,16 @@ interface Room {
   code: string;
   hostId: string;
   status: 'idle' | 'spinning';
+  activeGame: 'roulette' | 'dice'; 
   wedges: Wedge[];
   currentRotation: number;
   targetRotation: number;
   duration: number;
   spinStartAt?: number;
+  diceSeed?: number;   
+  diceResults?: number[]; // 👈 Cambiado a array para soportar múltiples dados
+  diceThresh?: number;    // 👈 Guardamos el DT (Dificultad de comparación)
+  lastResult?: { id?: string; name: string; color: string; firedAt: number };
   players?: Record<string, { name: string; isHost: boolean; online: boolean }>;
 }
 
@@ -28,6 +33,8 @@ interface GameContextType {
   joinRoom: (code: string) => Promise<{ ok: boolean; error?: string }>;
   updateWedgesInDb: (wedges: Wedge[]) => Promise<void>;
   spinWheel: () => Promise<void>;
+  changeActiveGame: (gameType: 'roulette' | 'dice') => Promise<void>; 
+  rollDice: (count: number, threshold: number) => Promise<void>; // 👈 Añadidos los tipos correctos de los argumentos
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -43,7 +50,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [players, setPlayers] = useState<any[]>([]);
 
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guardamos la referencia del listener activo para poder limpiarlo adecuadamente si es necesario
+  const diceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 👈 Temporizador para frenar los dados
   const roomListenerRef = useRef<any>(null);
 
   // ─── Restaurar sesión desde sessionStorage ────────────────────────────────
@@ -57,15 +64,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ─── Login / Autenticación Anónima ────────────────────────────────────────
   const login = async (nickname: string) => {
     if (!nickname.trim()) return;
-    console.log("Iniciando login para:", nickname);
-
     try {
       const userCredential = await signInAnonymously(auth);
       const newUser = {
         id: userCredential.user.uid,
         name: nickname.trim(),
       };
-      console.log("Login exitoso:", newUser);
       sessionStorage.setItem('ruleta_user', JSON.stringify(newUser));
       setUser(newUser);
     } catch (error) {
@@ -76,23 +80,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ─── Conexión en tiempo real unificada ────────────────────────────────────
   const connectToRoom = (roomId: string) => {
     console.log(`[RTDB Sync] Conectando a la sala: ${roomId}`);
-    
     const roomRef = ref(rtdb, `rooms/${roomId}`);
     
-    // Escuchamos absolutamente cualquier cambio en este nodo de la RTDB
     roomListenerRef.current = onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) {
-        console.warn("La sala no existe en la base de datos.");
         setRoom(null);
         setPlayers([]);
         return;
       }
       
-      // Sincronizamos el estado de la sala principal
       setRoom(data);
 
-      // Sincronizamos el log de participantes transformando el objeto en Array para tu UI
       if (data.players) {
         const playersArray = Object.entries(data.players).map(([id, info]: any) => ({
           id,
@@ -101,6 +100,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPlayers(playersArray);
       } else {
         setPlayers([]);
+      }
+
+      // ─── Auto-frenado de dados automático (Solo gestionado por el Host de la sala) ───
+      if (user && data.hostId === user.id && data.status === 'spinning' && data.activeGame === 'dice') {
+        if (diceTimeoutRef.current) clearTimeout(diceTimeoutRef.current);
+        
+        // Ponemos a los dados en reposo en la base de datos tras finalizar la animación (1.2s + margen)
+        diceTimeoutRef.current = setTimeout(async () => {
+          try {
+            await update(ref(rtdb, `rooms/${data.id}`), { status: 'idle' });
+          } catch (err) {
+            console.error("Error al detener la animación de los dados:", err);
+          }
+        }, 1300);
       }
     });
   };
@@ -122,6 +135,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         code: shortCode,
         hostId: user.id,
         status: 'idle',
+        activeGame: 'roulette', 
         currentRotation: 0,
         targetRotation: 0,
         duration: 5000,
@@ -135,15 +149,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       };
 
-      // Guardamos la sala en /rooms/-OsvXb...
       await set(newRoomRef, roomData);
-      
-      // Creamos el puente en /codes/7OGW para que los invitados lo resuelvan rápido
       await set(ref(rtdb, `codes/${shortCode}`), roomId);
 
-      console.log(`Sala creada con éxito en RTDB. Código: ${shortCode}`);
       connectToRoom(roomId);
-      
     } catch (error) {
       console.error("Error al crear la sala en RTDB:", error);
     }
@@ -152,11 +161,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ─── Unirse a sala ────────────────────────────────────────────────────────
   const joinRoom = async (shortCode: string): Promise<{ ok: boolean; error?: string }> => {
     if (!user) return { ok: false, error: "Usuario no autenticado" };
-    
     const normalizedCode = shortCode.trim().toUpperCase();
     
     try {
-      // Hacemos una lectura única para conseguir el ID interno a partir del código corto
       const codeSnapshot = await get(ref(rtdb, `codes/${normalizedCode}`));
       const roomId = codeSnapshot.val();
       
@@ -164,7 +171,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { ok: false, error: "La sala de juego no existe." };
       }
 
-      // Añadimos al participante al nodo interno de la sala en la RTDB
       const playerPresenceRef = ref(rtdb, `rooms/${roomId}/players/${user.id}`);
       await set(playerPresenceRef, {
         name: user.name,
@@ -172,12 +178,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         online: true
       });
 
-      console.log(`Unido con éxito a la sala interna: ${roomId}`);
       connectToRoom(roomId);
       return { ok: true };
-
     } catch (err: any) {
-      console.error("Error al unirse por RTDB:", err);
       return { ok: false, error: "Error de conexión al intentar unirse." };
     }
   };
@@ -185,13 +188,53 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ─── Actualizar cuñas (Exclusivo RTDB) ────────────────────────────────────
   const updateWedgesInDb = async (wedges: Wedge[]) => {
     if (!room) return;
-
     try {
       const roomWedgesRef = ref(rtdb, `rooms/${room.id}`);
-      // Actualizamos únicamente el nodo wedges de esta sala
       await update(roomWedgesRef, { wedges });
     } catch (error) {
       console.error("Error actualizando cuñas en RTDB:", error);
+    }
+  };
+
+  // ─── CAMBIAR DE JUEGO (Mover a la Ruleta o al Dado de forma síncrona) ─────
+  const changeActiveGame = async (gameType: 'roulette' | 'dice') => {
+    if (!room || !user || room.hostId !== user.id) return; 
+    try {
+      const roomRef = ref(rtdb, `rooms/${room.id}`);
+      await update(roomRef, { 
+        activeGame: gameType,
+        status: 'idle' 
+      });
+    } catch (error) {
+      console.error("Error al cambiar de juego:", error);
+    }
+  };
+
+  // ─── LANZAR EL DADO (Corregido nativo para ejecutarse en Realtime Database) ───
+  const rollDice = async (count: number, threshold: number) => {
+    if (!room || !user || room.hostId !== user.id) return; // Validación de seguridad: solo el host lanza
+    
+    try {
+      const seed = Math.random(); 
+      const results: number[] = [];
+      
+      for (let i = 0; i < count; i++) {
+        results.push(Math.floor(Math.random() * 20) + 1);
+      }
+
+      // 💥 CORRECCIÓN AQUÍ: apuntamos directamente a la referencia exacta de la RTDB
+      const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
+
+      await update(roomUpdatesRef, {
+        status: 'spinning',
+        spinStartAt: Date.now(),
+        duration: 1200,          
+        diceSeed: seed,
+        diceResults: results,     
+        diceThresh: threshold,    
+      });
+    } catch (error) {
+      console.error("Error al lanzar los dados en la RTDB:", error);
     }
   };
 
@@ -205,7 +248,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
       
-      // Publicamos el inicio del giro en la RTDB
       await update(roomUpdatesRef, {
         status: 'spinning',
         targetRotation,
@@ -215,40 +257,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
 
-      // El Host calcula cuándo termina la animación para restablecer el estado a 'idle'
       spinTimeoutRef.current = setTimeout(async () => {
         const freshSnapshot = await get(ref(rtdb, `rooms/${room.id}`));
         if (!freshSnapshot.exists()) return;
-
         const freshData = freshSnapshot.val();
         
-        // Si el timestamp coincide, cerramos el ciclo de giro
         if (freshData.spinStartAt === spinStartAt) {
           const finalRotation = targetRotation % 360;
-
-          // ─── 🧮 CÁLCULO DIRECTO Y SIMPLIFICADOBB ───
           const wedges = room.wedges;
           const numWedges = wedges.length;
           const degreesPerWedge = 360 / numWedges;
 
-          // En Canvas (context.rotate), el ángulo 0° está a las 3 en punto.
-          // Si la ruleta gira 'finalRotation' grados en sentido horario, las porciones se desplazan hacia la derecha.
-          // Para saber qué porción está ARRIBA (las 12 en punto / 270°), restamos la rotación al punto de la flecha.
           let targetAngle = (270 - finalRotation) % 360;
-          
-          // Si el ángulo da negativo, lo pasamos a positivo sumando 360°
-          if (targetAngle < 0) {
-            targetAngle += 360;
-          }
+          if (targetAngle < 0) targetAngle += 360;
 
-          // Al calcular el índice directamente sobre el ángulo de la porción en reposo:
           const winningIndex = Math.floor(targetAngle / degreesPerWedge) % numWedges;
           const winnerWedge = wedges[winningIndex] || wedges[0];
-          // ───────────────────────────────────────────────────────────────────
 
-          console.log(`¡Giro completado! Sincronizado bajo la flecha: ${winnerWedge.name}`);
-
-          // Guardamos en la RTDB
           await update(ref(rtdb, `rooms/${room.id}`), {
             status: 'idle',
             currentRotation: finalRotation,
@@ -267,15 +292,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── Limpieza al desmontar ────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
+      if (diceTimeoutRef.current) clearTimeout(diceTimeoutRef.current);
     };
   }, []);
 
   return (
-    <GameContext.Provider value={{ user, room, players, login, createRoom, joinRoom, updateWedgesInDb, spinWheel }}>
+    <GameContext.Provider value={{ 
+      user, room, players, login, createRoom, joinRoom, updateWedgesInDb, spinWheel, 
+      changeActiveGame, rollDice 
+    }}>
       {children}
     </GameContext.Provider>
   );

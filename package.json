@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "homepage": "https://PollitoScripts.github.io/Ruleta-Multiplayer",
+  "homepage": "https://github.com/PollitoScripts/GamesMaster-Suite",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
