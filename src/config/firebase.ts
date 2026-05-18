@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, CACHE_SIZE_UNLIMITED } from 'firebase/firestore'; // Reemplaza getFirestore por initializeFirestore
 import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
@@ -15,6 +15,15 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// FORZAMOS A FIRESTORE A TRABAJAR 100% ONLINE SIN USAR LA CACHÉ DAÑADA DEL NAVEGADOR
+export const db = initializeFirestore(app, {
+  localCache: {
+    kind: 'persistent',
+    cacheSizeBytes: CACHE_SIZE_UNLIMITED
+  }
+});
+
 export const rtdb = getDatabase(app);

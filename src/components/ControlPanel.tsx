@@ -1,10 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
+import confetti from 'canvas-confetti'; // 👈 Asegúrate de tenerlo instalado: npm install canvas-confetti @types/canvas-confetti
 
 export const ControlPanel: React.FC = () => {
   const { room, user, players, updateWedgesInDb, spinWheel } = useGame();
   const [text, setText] = useState('');
   const [color, setColor] = useState('#6366f1');
+
+  // ─── 🎉 EFECTO DE CONFETIS SINCRONIZADO ──────────────────────────────────
+  useEffect(() => {
+    // Si la ruleta se detiene ('idle') y Firebase nos entrega un resultado fresco
+    if (room && room.status === 'idle' && room.lastResult) {
+      console.log("¡Lanzando confetis globales para:", room.lastResult.name);
+      
+      confetti({
+        particleCount: 120,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    }
+  }, [room?.status, room?.lastResult?.firedAt]); // Reacciona al instante exacto del impacto del giro
 
   if (!room || !user) return null;
   const isHost = room.hostId === user.id;
@@ -24,6 +39,18 @@ export const ControlPanel: React.FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-5">
+      
+      {/* ─── 🏆 BANNER DE GANADOR FIJO (Aparece arriba solo cuando está quieta) ─── */}
+      {room.status === 'idle' && room.lastResult && (
+        <div 
+          style={{ backgroundColor: room.lastResult.color }} 
+          className="w-full p-4 rounded-2xl text-center font-black text-white shadow-xl border border-white/20 animate-bounce transition-all duration-300"
+        >
+          <p className="text-[10px] tracking-widest text-white/70 font-bold uppercase mb-0.5">Resultado Anterior</p>
+          <span className="text-lg">🎉 ¡Ha tocado: {room.lastResult.name}! 🏆</span>
+        </div>
+      )}
+
       {/* PANEL DE CONTROL PRINCIPAL */}
       <div className="w-full bg-slate-900/60 border border-white/10 rounded-3xl p-6 flex flex-col gap-5 backdrop-blur-md">
         <div className="flex justify-between items-center">

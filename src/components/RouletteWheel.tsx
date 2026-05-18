@@ -21,7 +21,6 @@ export const RouletteWheel: React.FC = () => {
 
     let animationFrameId: number;
 
-    // Función pura encargada de pintar el canvas basándose en un ángulo de rotación específico
     const draw = (rotationDeg: number) => {
       ctx.clearRect(0, 0, size, size);
 
@@ -80,41 +79,50 @@ export const RouletteWheel: React.FC = () => {
       const animate = () => {
         const now = Date.now();
         const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        
+        if (elapsed >= duration) {
+          draw(targetRotation);
+          return;
+        }
 
-        // Función de desaceleración idéntica en todos los clientes (Ease-Out Quad)
+        const progress = elapsed / duration;
         const easeOutQuad = (t: number) => t * (2 - t);
         const currentAngle = startRotation + (targetRotation - startRotation) * easeOutQuad(progress);
 
         draw(currentAngle);
-
-        if (progress < 1) {
-          animationFrameId = requestAnimationFrame(animate);
-        }
+        animationFrameId = requestAnimationFrame(animate);
       };
 
       animate();
     } else {
-      // Si la rueda está quieta ('idle'), simplemente dibuja la rotación estática actual de la BD
       draw(room?.currentRotation || 0);
     }
 
-    // Limpieza del frame de animación si el componente se desmonta inesperadamente
     return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
-
-  }, [wedges, room?.status, room?.currentRotation, room?.targetRotation, room?.spinStartAt, room?.duration]);
+  }, [wedges, room?.id, room?.status, room?.currentRotation, room?.targetRotation, room?.spinStartAt, room?.duration]);
 
   return (
-    <div className="relative w-72 h-72 md:w-96 md:h-96 flex items-center justify-center">
+    <div className="relative w-72 h-72 md:w-96 md:h-96 flex items-center justify-center select-none">
+      
+      {/* 👇 FLECHA / PUNTERO FÍSICO SUPERIOR DE LA RULETA */}
+      <div 
+        className={`absolute -top-4 left-1/2 -translate-x-1/2 z-30 w-0 h-0 
+          border-l-[16px] border-l-transparent 
+          border-r-[16px] border-r-transparent 
+          border-t-[32px] border-t-rose-500 
+          drop-shadow-[0_6px_8px_rgba(0,0,0,0.7)]
+          transition-transform duration-200
+          ${room?.status === 'spinning' ? 'animate-pulse scale-110' : ''}`}
+      />
+
+      {/* CANVAS DE LA RULETA */}
       <canvas
         ref={canvasRef}
         width={400}
         height={400}
-        className="w-full h-full rounded-full shadow-[0_0_50px_rgba(0,0,0,0.5)] border-4 border-slate-800"
+        className="w-full h-full rounded-full shadow-[0_0_50px_rgba(0,0,0,0.5)] border-4 border-slate-800 z-10"
       />
     </div>
   );
