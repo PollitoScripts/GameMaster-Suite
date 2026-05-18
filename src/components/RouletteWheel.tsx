@@ -1,6 +1,27 @@
 import React, { useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 
+// ─── 🎨 FUNCIÓN AUXILIAR DE CONTRASTE INTELIGENTE ─────────────────────────
+// Recibe un color en HEX (ej: "#ffffff") y devuelve "#000000" o "#ffffff"
+const getContrastColor = (hexColor: string): string => {
+  // Por si viene vacío o mal formateado
+  if (!hexColor) return '#ffffff';
+  
+  // Limpiamos el '#' si lo lleva
+  const hex = hexColor.replace('#', '');
+  
+  // Convertimos a valores RGB
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  
+  // Fórmula de luminosidad percibida por el ojo humano (YIQ)
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  
+  // Si es brillante (mayor a 128), el texto debe ser negro. Si no, blanco.
+  return yiq >= 128 ? '#0f172a' : '#ffffff'; 
+};
+
 export const RouletteWheel: React.FC = () => {
   const { room } = useGame();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -45,13 +66,16 @@ export const RouletteWheel: React.FC = () => {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // 2. Dibujar el texto de la opción
+        // 2. Dibujar el texto de la opción con contraste dinámico
         ctx.save();
         ctx.translate(center, center);
         ctx.rotate(startAngle + arcSize / 2);
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#ffffff';
+        
+        // 👇 AQUÍ CAMBIAMOS EL COLOR DEL TEXTO SEGÚN EL FONDO DE LA CUÑA
+        ctx.fillStyle = getContrastColor(wedge.color); 
+        
         ctx.font = 'bold 14px sans-serif';
         ctx.fillText(wedge.name, radius - 20, 0);
         ctx.restore();
@@ -106,7 +130,7 @@ export const RouletteWheel: React.FC = () => {
   return (
     <div className="relative w-72 h-72 md:w-96 md:h-96 flex items-center justify-center select-none">
       
-      {/* 👇 FLECHA / PUNTERO FÍSICO SUPERIOR DE LA RULETA */}
+      {/* FLECHA / PUNTERO FÍSICO SUPERIOR DE LA RULETA */}
       <div 
         className={`absolute -top-4 left-1/2 -translate-x-1/2 z-30 w-0 h-0 
           border-l-[16px] border-l-transparent 

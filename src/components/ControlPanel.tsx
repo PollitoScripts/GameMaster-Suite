@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import confetti from 'canvas-confetti'; // 👈 Asegúrate de tenerlo instalado: npm install canvas-confetti @types/canvas-confetti
 
+// ─── 🎨 FUNCIÓN AUXILIAR DE CONTRASTE INTELIGENTE ─────────────────────────
+const getContrastColor = (hexColor: string): string => {
+  if (!hexColor) return '#ffffff';
+  const hex = hexColor.replace('#', '');
+  
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? '#0f172a' : '#ffffff'; 
+};
+
 export const ControlPanel: React.FC = () => {
   const { room, user, players, updateWedgesInDb, spinWheel } = useGame();
   const [text, setText] = useState('');
@@ -9,7 +22,6 @@ export const ControlPanel: React.FC = () => {
 
   // ─── 🎉 EFECTO DE CONFETIS SINCRONIZADO ──────────────────────────────────
   useEffect(() => {
-    // Si la ruleta se detiene ('idle') y Firebase nos entrega un resultado fresco
     if (room && room.status === 'idle' && room.lastResult) {
       console.log("¡Lanzando confetis globales para:", room.lastResult.name);
       
@@ -19,7 +31,7 @@ export const ControlPanel: React.FC = () => {
         origin: { y: 0.6 }
       });
     }
-  }, [room?.status, room?.lastResult?.firedAt]); // Reacciona al instante exacto del impacto del giro
+  }, [room?.status, room?.lastResult?.firedAt]);
 
   if (!room || !user) return null;
   const isHost = room.hostId === user.id;
@@ -37,16 +49,28 @@ export const ControlPanel: React.FC = () => {
     await updateWedgesInDb(filtered);
   };
 
+  // Calculamos el color ideal para el texto del banner si hay un resultado disponible
+  const bannerTextColor = room.lastResult ? getContrastColor(room.lastResult.color) : '#ffffff';
+
   return (
     <div className="w-full flex flex-col gap-5">
       
-      {/* ─── 🏆 BANNER DE GANADOR FIJO (Aparece arriba solo cuando está quieta) ─── */}
+      {/* ─── 🏆 BANNER DE GANADOR FIJO (Con contraste adaptativo de texto) ─── */}
       {room.status === 'idle' && room.lastResult && (
         <div 
-          style={{ backgroundColor: room.lastResult.color }} 
-          className="w-full p-4 rounded-2xl text-center font-black text-white shadow-xl border border-white/20 animate-bounce transition-all duration-300"
+          style={{ 
+            backgroundColor: room.lastResult.color,
+            color: bannerTextColor // 👈 Forzamos el color del texto dinámicamente aquí
+          }} 
+          className="w-full p-4 rounded-2xl text-center font-black shadow-xl border border-white/20 animate-bounce transition-all duration-300"
         >
-          <p className="text-[10px] tracking-widest text-white/70 font-bold uppercase mb-0.5">Resultado Anterior</p>
+          {/* Usamos opacity-70 combinada con el color calculado para mantener la sutileza del subtítulo */}
+          <p 
+            style={{ color: bannerTextColor }}
+            className="text-[10px] tracking-widest opacity-70 font-bold uppercase mb-0.5"
+          >
+            Resultado Anterior
+          </p>
           <span className="text-lg">🎉 ¡Ha tocado: {room.lastResult.name}! 🏆</span>
         </div>
       )}
