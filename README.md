@@ -47,3 +47,4 @@ Diseñado para sistemas de rol avanzados donde no solo importa superar una dific
 - [ ] ⚔️ **Gestor de Iniciativa Global:** Lista ordenada en tiempo real para controlar los turnos de combate de los monstruos y la *party*.
 - [ ] 📜 **Chat Integrado con Comandos de Dados:** Soporte para comandos rápidos en teclado (ej: `/roll 4d6 + 2`) para tiradas de daño o atributos secundarios.
 - [ ] 👥 **Vitals de la Party (Fichas Rápidas):** Barras de puntos de vida (HP) y recursos de los jugadores visibles en tiempo real para el director de juego.
+- [ ] 🔉 **Mesa de DJ:** El Host designara a un participante para poder añadir musica/sonidos en background en cualquier momento la cual sera escuchada por todos los niembros de la party.
