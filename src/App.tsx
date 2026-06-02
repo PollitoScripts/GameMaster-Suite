@@ -141,7 +141,7 @@ function App() {
               /* Si están rodando en la DB, mostramos el Canvas 3D común */
               <Dice3D 
                 seed={room.diceSeed ?? 0} 
-                results={room.diceResults ?? [6]} 
+                results={room.damageResults ?? []} 
                 status={room.status} 
                 duration={room.duration ?? 1200}
                 spinStartAt={room.spinStartAt}

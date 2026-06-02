@@ -6,6 +6,26 @@ import { calculateSpin } from '../utils/physics';
 import type { Wedge } from '../utils/physics';
 
 interface User { id: string; name: string; }
+
+interface HistoryEntry {
+  timestamp: number;
+  rolledBy: string;
+  // roulette
+  result?: string;
+  color?: string;
+  // dice
+  results?: number[];
+  threshold?: number;
+  successes?: number;
+  sum?: number;
+  diceCount?: number;
+  // dice-damage
+  pool?: Record<string, number>;
+  total?: number;
+  bonus?: number;
+  grandTotal?: number;
+}
+
 interface Room {
   id: string;
   code: string;
@@ -18,12 +38,18 @@ interface Room {
   duration: number;
   spinStartAt?: number;
   diceSeed?: number;   
-  diceResults?: number[]; 
-  diceThresh?: number; 
-  bonus?: number; // 👈 Añadido campo para el bonus
+  diceResults?: number[];
+  diceThresh?: number;
+  damageResults?: number[];
+  bonus?: number;
   damageDiceConfig?: Record<string, number>; 
   lastResult?: { id?: string; name: string; color: string; firedAt: number };
   players?: Record<string, { name: string; isHost: boolean; online: boolean }>;
+  history?: {
+    roulette?: HistoryEntry[];
+    dice?: HistoryEntry[];
+    'dice-damage'?: HistoryEntry[];
+  };
 }
 
 interface GameContextType {
@@ -34,7 +60,7 @@ interface GameContextType {
   createRoom: () => Promise<void>;
   joinRoom: (code: string) => Promise<{ ok: boolean; error?: string }>;
   updateWedgesInDb: (wedges: Wedge[]) => Promise<void>;
-  updateGameField: (fields: object) => Promise<void>; // 👈 Añadida función genérica de actualización
+  updateGameField: (fields: object) => Promise<void>;
   spinWheel: () => Promise<void>;
   changeActiveGame: (gameType: 'roulette' | 'dice' | 'dice-damage') => Promise<void>;
   rollDice: (count: number, threshold: number) => Promise<void>; 
@@ -44,8 +70,8 @@ interface GameContextType {
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
 export const DEFAULT_WEDGES: Wedge[] = [
-  { id: 'init-1', name: 'Sí 👍', color: '#6366f1' },
-  { id: 'init-2', name: 'No 👎', color: '#f43f5e' },
+  { id: 'init-1', name: 'SI', color: '#6366f1' },
+  { id: 'init-2', name: 'NO', color: '#f43f5e' },
 ];
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -63,6 +89,33 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(JSON.parse(savedUser));
     }
   }, []);
+
+  // 鈹€鈹€ HISTORIAL 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // A帽ade una entrada al historial del modo indicado, manteniendo m谩ximo 10.
+  // Se llama con un setTimeout para que el historial aparezca DESPU脡S
+  // de que la animaci贸n del dado/ruleta haya terminado de mostrarse.
+  const appendHistory = async (
+    roomId: string,
+    mode: 'roulette' | 'dice' | 'dice-damage',
+    entry: Omit<HistoryEntry, 'timestamp'>
+  ) => {
+    try {
+      const histRef = ref(rtdb, `rooms/${roomId}/history/${mode}`);
+      const snap = await get(histRef);
+      const raw = snap.val();
+      // Firebase puede devolver objeto o array; normalizamos a array
+      const current: HistoryEntry[] = raw
+        ? Array.isArray(raw)
+          ? raw
+          : Object.values(raw)
+        : [];
+      const newEntry: HistoryEntry = { ...entry, timestamp: Date.now() };
+      const updated = [...current, newEntry].slice(-10); // 煤ltimas 10
+      await set(histRef, updated);
+    } catch (error) {
+      console.error(`Error al guardar historial [${mode}]:`, error);
+    }
+  };
 
   const login = async (nickname: string) => {
     if (!nickname.trim()) return;
@@ -110,7 +163,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             await update(ref(rtdb, `rooms/${data.id}`), { status: 'idle' });
           } catch (err) {
-            console.error("Error al detener la animación de los dados:", err);
+            console.error("Error al detener la animaci贸n de los dados:", err);
           }
         }, 10000);
       }
@@ -137,8 +190,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentRotation: 0,
         targetRotation: 0,
         duration: 5000,
-        bonus: 0, // Inicializamos en 0
+        bonus: 0,
         wedges: DEFAULT_WEDGES,
+        diceResults: [],
+        damageResults: [],
+        history: {
+          roulette: [],
+          dice: [],
+          'dice-damage': [],
+        },
         players: {
           [user.id]: {
             name: user.name,
@@ -179,7 +239,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       connectToRoom(roomId);
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: "Error de conexión al intentar unirse." };
+      return { ok: false, error: "Error de conexi贸n al intentar unirse." };
     }
   };
 
@@ -189,11 +249,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const roomWedgesRef = ref(rtdb, `rooms/${room.id}`);
       await update(roomWedgesRef, { wedges });
     } catch (error) {
-      console.error("Error actualizando cuñas en RTDB:", error);
+      console.error("Error actualizando cu帽as en RTDB:", error);
     }
   };
 
-  // ─── NUEVA FUNCIÓN PARA ACTUALIZAR CUALQUIER CAMPO ───────────────────────
   const updateGameField = async (fields: object) => {
     if (!room) return;
     try {
@@ -208,9 +267,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!room || !user || room.hostId !== user.id) return; 
     try {
       const roomRef = ref(rtdb, `rooms/${room.id}`);
+      // Al cambiar de modo limpiamos resultados del modo anterior
+      // pero el historial se conserva intencionalmente
       await update(roomRef, { 
         activeGame: gameType,
-        status: 'idle' 
+        status: 'idle',
+        diceResults: [],
+        damageResults: [],
+        damageDiceConfig: {},
       });
     } catch (error) {
       console.error("Error al cambiar de juego:", error);
@@ -228,15 +292,36 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         results.push(Math.floor(Math.random() * 20) + 1);
       }
 
+      const successes = results.filter(v => v > threshold).length;
+      const sum = results
+        .filter(v => v > threshold)
+        .reduce((a, v) => a + (v - threshold), 0);
+
       const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
+
+      // Lanzamos la animaci贸n de inmediato
       await update(roomUpdatesRef, {
         status: 'spinning',
         spinStartAt: Date.now(),
         duration: 1200,          
         diceSeed: seed,
-        diceResults: results,    
+        diceResults: results,
         diceThresh: threshold,    
       });
+
+      // El historial se escribe con retraso para que aparezca DESPU脡S
+      // de que el dado haya terminado su animaci贸n y mostrado el resultado
+      setTimeout(() => {
+        appendHistory(room.id, 'dice', {
+          rolledBy: user.name,
+          results,
+          threshold,
+          successes,
+          sum,
+          diceCount: count,
+        });
+      }, 2800);
+
     } catch (error) {
       console.error("Error al lanzar los dados en la RTDB:", error);
     }
@@ -261,17 +346,37 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
+      const total = results.reduce((a, v) => a + v, 0);
+      const currentBonus = room.bonus ?? 0;
+      const grandTotal = total + currentBonus;
+
       const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
+
+      // Lanzamos la animaci贸n de inmediato
       await update(roomUpdatesRef, {
         status: 'spinning',
         spinStartAt: Date.now(),
         duration: 1200,
         diceSeed: seed,
-        diceResults: results,
+        damageResults: results,
         damageDiceConfig: pool,
       });
+
+      // El historial se escribe con retraso para que aparezca DESPU脡S
+      // de que el dado haya terminado su animaci贸n y mostrado el resultado
+      setTimeout(() => {
+        appendHistory(room.id, 'dice-damage', {
+          rolledBy: user.name,
+          results,
+          pool,
+          total,
+          bonus: currentBonus,
+          grandTotal,
+        });
+      }, 2800);
+
     } catch (error) {
-      console.error("Error al lanzar dados de daño en RTDB:", error);
+      console.error("Error al lanzar dados de da帽o en RTDB:", error);
     }
   };
 
@@ -310,6 +415,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const winningIndex = Math.floor(targetAngle / degreesPerWedge) % numWedges;
           const winnerWedge = wedges[winningIndex] || wedges[0];
 
+          // Actualizamos el estado final de la sala de inmediato
           await update(ref(rtdb, `rooms/${room.id}`), {
             status: 'idle',
             currentRotation: finalRotation,
@@ -320,6 +426,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               firedAt: Date.now()
             }
           });
+
+          // El historial se escribe con retraso para que aparezca DESPU脡S
+          // del confetti y del banner de resultado en pantalla
+          setTimeout(() => {
+            appendHistory(room.id, 'roulette', {
+              rolledBy: user.name,
+              result: winnerWedge.name,
+              color: winnerWedge.color,
+            });
+          }, 1500);
         }
       }, duration);
 
