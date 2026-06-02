@@ -17,12 +17,19 @@ El objetivo de esta plataforma es agilizar las sesiones de juego sustituyendo lo
 ### 2. ⚔️ Sistema de Dados de Daño (Damage Dice)
 
 * **Pool Personalizable:** Permite al Game Master configurar una tirada combinada de diferentes dados (d4, d6, d8, d10, d12, d100).
-* **Cálculo Automático:** El sistema suma el resultado total de la tirada incluyendo bonificadores, mostrando el daño total de forma clara y visual para la mesa.
+* **Sistema de Bonos:** Nueva sección para aplicar modificadores de daño. El sistema suma automáticamente el resultado de los dados con el bono configurado.
+* **Cálculo Automático:** Muestra el daño total de forma clara y visual para la mesa.
 
 ### 3. 🎡 Ruleta del Destino
 
-* **Gestión Dinámica:** El GM puede editar las cuñas de la ruleta (nombre, color, texto) en tiempo real para adaptarse a cualquier situación de la partida.
-* **Sincronización de Estado:** El giro, la duración y el resultado final son consistentes para todos los usuarios conectados a la sala.
+* **Gestión Dinámica:** El GM puede editar las cuñas de la ruleta (nombre, color, texto) en tiempo real.
+* **Sin Restricciones:** Ahora permite crear ruletas desde **cero opciones**, eliminando la necesidad de un mínimo de elementos para una creación de listas mucho más ágil e improvisada.
+* **Sincronización de Estado:** El giro y el resultado final son consistentes para todos los usuarios conectados.
+
+### 4. 📝 Historial de Actividad (Log)
+
+* **Registro Unificado:** Nuevo apartado que guarda todo el historial de la sesión.
+* **Trazabilidad:** Consulta en cualquier momento los resultados previos de los lanzamientos D20, el daño infligido y los giros de ruleta. Mantén un control total de lo ocurrido durante la partida.
 
 ---
 
