@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useGame } from "./context/GameContext";
-import { Sidebar } from "./components/Sidebar"; // 👈 Añadimos el menú desplegable lateral
+import { Sidebar } from "./components/SideBar"; // 👈 Añadimos el menú desplegable lateral
 import { RouletteWheel } from "./components/RouletteWheel";
 import { Dice3D } from "./components/Dice3D.tsx"; // 👈 Tu componente de Canvas / Three.js del dado d20
 import { ControlPanel } from "./components/ControlPanel";
