@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar"; // 👈 Añadimos el menú despl
 import { RouletteWheel } from "./components/RouletteWheel";
 import { Dice3D } from "./components/Dice3D.tsx"; // 👈 Tu componente de Canvas / Three.js del dado d20
 import { ControlPanel } from "./components/ControlPanel";
+import { DadosDano } from './components/DadosDano'; // Asegúrate de ajustar la ruta si es necesario
 
 function App() {
   const { user, room, login, createRoom, joinRoom } = useGame();
@@ -107,11 +108,11 @@ function App() {
     );
   }
 
-  // 3. PANTALLA DE JUEGO (Actualizada con lógica condicional para la Ruleta o el Dado)
+  // 3. PANTALLA DE JUEGO (Actualizada con soporte para Dados de Daño)
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col lg:flex-row items-center justify-center gap-10 p-6 relative">
       
-      {/* Menú lateral para alternar entre juegos (Ruleta/Dado) */}
+      {/* Menú lateral para alternar entre juegos (Ruleta/Dado/Daño) */}
       <Sidebar />
 
       {/* LADO IZQUIERDO: Visualizador del juego activo dictado por Firebase */}
@@ -123,17 +124,35 @@ function App() {
           <p className="text-xl font-mono font-black text-cyan-400 tracking-widest">{room.code}</p>
         </div>
 
-        {/* 🧠 CONTROL DE RENDERIZADO INTELIGENTE */}
-        <div className="flex-1 flex items-center justify-center p-4">
+        {/* 🧠 CONTROL DE RENDERIZADO INTELIGENTE ACTUALIZADO */}
+        <div className="flex-1 flex items-center justify-center p-4 w-full">
           {room.activeGame === 'dice' ? (
-            // Renderizado directo sin tarjetas duplicadas oscuras de fondo
             <Dice3D 
               seed={room.diceSeed ?? 0} 
-              results={room.diceResults ?? [20, 20]} // Fallback para pintar dados iniciales
+              results={room.diceResults ?? [20, 20]} 
               status={room.status} 
               duration={room.duration ?? 1200}
               spinStartAt={room.spinStartAt}
+              mode="d20" // 👈 Avisamos que es modo estándar
             />
+          ) : room.activeGame === 'dice-damage' ? (
+            /* ⚔️ SI ESTAMOS EN DADOS DE DAÑO: */
+            room.status === 'spinning' ? (
+              /* Si están rodando en la DB, mostramos el Canvas 3D común */
+              <Dice3D 
+                seed={room.diceSeed ?? 0} 
+                results={room.diceResults ?? [6]} 
+                status={room.status} 
+                duration={room.duration ?? 1200}
+                spinStartAt={room.spinStartAt}
+                mode="damage" // 👈 Avisamos al Canvas que use las caras dinámicas
+                pool={room.damageDiceConfig} // 👈 Le pasamos los tipos de dados tirados
+                bonus={Number(room.bonus ?? 0)}
+              />
+            ) : (
+              /* Si la mesa está en reposo ('idle'), mostramos tu panel de selección */
+              <DadosDano />
+            )
           ) : (
             <RouletteWheel />
           )}

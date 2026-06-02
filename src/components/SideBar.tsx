@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
-import { Menu, X, Dices, Disc } from 'lucide-react'; // Instala lucide-react si no lo tienes
+import { Menu, X, Dices, Disc, Swords } from 'lucide-react'; // 👈 Añadimos Swords para los dados de daño
 
 export const Sidebar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,7 +9,8 @@ export const Sidebar: React.FC = () => {
   if (!room || !user) return null;
   const isHost = room.hostId === user.id;
 
-  const handleGameChange = async (gameType: 'roulette' | 'dice') => {
+  // 👈 Actualizamos el tipado aquí para admitir 'dice-damage'
+  const handleGameChange = async (gameType: 'roulette' | 'dice' | 'dice-damage') => {
     if (!isHost) return; // Solo el host cambia el juego global
     await changeActiveGame(gameType);
     setIsOpen(false);
@@ -51,7 +52,7 @@ export const Sidebar: React.FC = () => {
             </div>
           </button>
 
-          {/* Opción Dado 3D */}
+          {/* Opción Dado D20 3D */}
           <button
             onClick={() => handleGameChange('dice')}
             disabled={!isHost && room.activeGame !== 'dice'}
@@ -60,6 +61,19 @@ export const Sidebar: React.FC = () => {
             <Dices size={18} />
             <div>
               <p>Dado D20 Ultra 3D</p>
+              {!isHost && <span className="text-[9px] text-slate-400 font-normal">Solo lectura</span>}
+            </div>
+          </button>
+
+          {/* ⚔️ NUEVA OPCIÓN: Dados de Daño */}
+          <button
+            onClick={() => handleGameChange('dice-damage')}
+            disabled={!isHost && room.activeGame !== 'dice-damage'}
+            className={`flex items-center gap-3 w-full p-3 rounded-xl font-bold text-xs transition-all text-left ${room.activeGame === 'dice-damage' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white/5 hover:bg-white/10 text-slate-300 disabled:opacity-40'}`}
+          >
+            <Swords size={18} />
+            <div>
+              <p>Dados de Daño y %</p>
               {!isHost && <span className="text-[9px] text-slate-400 font-normal">Solo lectura</span>}
             </div>
           </button>

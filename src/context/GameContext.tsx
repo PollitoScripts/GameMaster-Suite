@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { auth, rtdb } from '../config/firebase'; 
 import { signInAnonymously } from 'firebase/auth';
-import { ref, push, set, update, onValue, get } from "firebase/database"; // 👈 Usamos los métodos de RTDB
+import { ref, push, set, update, onValue, get } from "firebase/database"; 
 import { calculateSpin } from '../utils/physics';
 import type { Wedge } from '../utils/physics';
 
@@ -11,15 +11,17 @@ interface Room {
   code: string;
   hostId: string;
   status: 'idle' | 'spinning';
-  activeGame: 'roulette' | 'dice'; 
+  activeGame: 'roulette' | 'dice' | 'dice-damage';
   wedges: Wedge[];
   currentRotation: number;
   targetRotation: number;
   duration: number;
   spinStartAt?: number;
   diceSeed?: number;   
-  diceResults?: number[]; // 👈 Cambiado a array para soportar múltiples dados
-  diceThresh?: number;    // 👈 Guardamos el DT (Dificultad de comparación)
+  diceResults?: number[]; 
+  diceThresh?: number; 
+  bonus?: number; // 👈 Añadido campo para el bonus
+  damageDiceConfig?: Record<string, number>; 
   lastResult?: { id?: string; name: string; color: string; firedAt: number };
   players?: Record<string, { name: string; isHost: boolean; online: boolean }>;
 }
@@ -32,9 +34,11 @@ interface GameContextType {
   createRoom: () => Promise<void>;
   joinRoom: (code: string) => Promise<{ ok: boolean; error?: string }>;
   updateWedgesInDb: (wedges: Wedge[]) => Promise<void>;
+  updateGameField: (fields: object) => Promise<void>; // 👈 Añadida función genérica de actualización
   spinWheel: () => Promise<void>;
-  changeActiveGame: (gameType: 'roulette' | 'dice') => Promise<void>; 
-  rollDice: (count: number, threshold: number) => Promise<void>; // 👈 Añadidos los tipos correctos de los argumentos
+  changeActiveGame: (gameType: 'roulette' | 'dice' | 'dice-damage') => Promise<void>;
+  rollDice: (count: number, threshold: number) => Promise<void>; 
+  rollDamageDice: (pool: Record<string, number>) => Promise<void>;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -50,10 +54,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [players, setPlayers] = useState<any[]>([]);
 
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const diceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 👈 Temporizador para frenar los dados
+  const diceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); 
   const roomListenerRef = useRef<any>(null);
 
-  // ─── Restaurar sesión desde sessionStorage ────────────────────────────────
   useEffect(() => {
     const savedUser = sessionStorage.getItem('ruleta_user');
     if (savedUser) {
@@ -61,7 +64,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // ─── Login / Autenticación Anónima ────────────────────────────────────────
   const login = async (nickname: string) => {
     if (!nickname.trim()) return;
     try {
@@ -77,7 +79,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── Conexión en tiempo real unificada ────────────────────────────────────
   const connectToRoom = (roomId: string) => {
     console.log(`[RTDB Sync] Conectando a la sala: ${roomId}`);
     const roomRef = ref(rtdb, `rooms/${roomId}`);
@@ -102,23 +103,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPlayers([]);
       }
 
-      // ─── Auto-frenado de dados automático (Solo gestionado por el Host de la sala) ───
-      if (user && data.hostId === user.id && data.status === 'spinning' && data.activeGame === 'dice') {
+      if (user && data.hostId === user.id && data.status === 'spinning' && (data.activeGame === 'dice' || data.activeGame === 'dice-damage')) {
         if (diceTimeoutRef.current) clearTimeout(diceTimeoutRef.current);
         
-        // Ponemos a los dados en reposo en la base de datos tras finalizar la animación (1.2s + margen)
         diceTimeoutRef.current = setTimeout(async () => {
           try {
             await update(ref(rtdb, `rooms/${data.id}`), { status: 'idle' });
           } catch (err) {
             console.error("Error al detener la animación de los dados:", err);
           }
-        }, 1300);
+        }, 10000);
       }
     });
   };
 
-  // ─── Crear sala ───────────────────────────────────────────────────────────
   const createRoom = async () => {
     if (!user) return;
 
@@ -139,6 +137,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentRotation: 0,
         targetRotation: 0,
         duration: 5000,
+        bonus: 0, // Inicializamos en 0
         wedges: DEFAULT_WEDGES,
         players: {
           [user.id]: {
@@ -158,7 +157,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── Unirse a sala ────────────────────────────────────────────────────────
   const joinRoom = async (shortCode: string): Promise<{ ok: boolean; error?: string }> => {
     if (!user) return { ok: false, error: "Usuario no autenticado" };
     const normalizedCode = shortCode.trim().toUpperCase();
@@ -185,7 +183,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── Actualizar cuñas (Exclusivo RTDB) ────────────────────────────────────
   const updateWedgesInDb = async (wedges: Wedge[]) => {
     if (!room) return;
     try {
@@ -196,8 +193,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── CAMBIAR DE JUEGO (Mover a la Ruleta o al Dado de forma síncrona) ─────
-  const changeActiveGame = async (gameType: 'roulette' | 'dice') => {
+  // ─── NUEVA FUNCIÓN PARA ACTUALIZAR CUALQUIER CAMPO ───────────────────────
+  const updateGameField = async (fields: object) => {
+    if (!room) return;
+    try {
+      const roomRef = ref(rtdb, `rooms/${room.id}`);
+      await update(roomRef, fields);
+    } catch (error) {
+      console.error("Error actualizando campo en RTDB:", error);
+    }
+  };
+
+  const changeActiveGame = async (gameType: 'roulette' | 'dice' | 'dice-damage') => {
     if (!room || !user || room.hostId !== user.id) return; 
     try {
       const roomRef = ref(rtdb, `rooms/${room.id}`);
@@ -210,9 +217,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── LANZAR EL DADO (Corregido nativo para ejecutarse en Realtime Database) ───
   const rollDice = async (count: number, threshold: number) => {
-    if (!room || !user || room.hostId !== user.id) return; // Validación de seguridad: solo el host lanza
+    if (!room || !user || room.hostId !== user.id) return; 
     
     try {
       const seed = Math.random(); 
@@ -222,15 +228,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         results.push(Math.floor(Math.random() * 20) + 1);
       }
 
-      // 💥 CORRECCIÓN AQUÍ: apuntamos directamente a la referencia exacta de la RTDB
       const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
-
       await update(roomUpdatesRef, {
         status: 'spinning',
         spinStartAt: Date.now(),
         duration: 1200,          
         diceSeed: seed,
-        diceResults: results,     
+        diceResults: results,    
         diceThresh: threshold,    
       });
     } catch (error) {
@@ -238,7 +242,39 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ─── Girar ruleta (Exclusivo RTDB) ─────────────────────────────────────────
+  const rollDamageDice = async (pool: Record<string, number>) => {
+    if (!room || !user || room.hostId !== user.id) return;
+
+    try {
+      const seed = Math.random();
+      const results: number[] = [];
+      const carasPorDado: Record<string, number> = {
+        d4: 4, d6: 6, d8: 8, d10: 10, d12: 12, d100: 100
+      };
+
+      Object.entries(pool).forEach(([dadoId, cantidad]) => {
+        const caras = carasPorDado[dadoId];
+        if (caras && cantidad > 0) {
+          for (let i = 0; i < cantidad; i++) {
+            results.push(Math.floor(Math.random() * caras) + 1);
+          }
+        }
+      });
+
+      const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
+      await update(roomUpdatesRef, {
+        status: 'spinning',
+        spinStartAt: Date.now(),
+        duration: 1200,
+        diceSeed: seed,
+        diceResults: results,
+        damageDiceConfig: pool,
+      });
+    } catch (error) {
+      console.error("Error al lanzar dados de daño en RTDB:", error);
+    }
+  };
+
   const spinWheel = async () => {
     if (!room || room.status === 'spinning' || !user || room.hostId !== user.id) return;
 
@@ -301,8 +337,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <GameContext.Provider value={{ 
-      user, room, players, login, createRoom, joinRoom, updateWedgesInDb, spinWheel, 
-      changeActiveGame, rollDice 
+      user, room, players, login, createRoom, joinRoom, updateWedgesInDb, updateGameField, spinWheel, 
+      changeActiveGame, rollDice, rollDamageDice
     }}>
       {children}
     </GameContext.Provider>

@@ -1,73 +1,41 @@
-# React + TypeScript + Vite
+# 🎲 GameMaster Suite 📜
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+¡Bienvenido a **GameMaster Suite**! Una herramienta multijugador en tiempo real diseñada para Directores de Juego (Game Masters) y mesas de rol (RPGs) que juegan online.
 
-Currently, two official plugins are available:
+El objetivo de esta plataforma es agilizar las sesiones de juego sustituyendo los bots de texto por herramientas visuales interactivas, fluidas y sincronizadas al milisegundo mediante Firebase Realtime Database.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🕹️ Funcionalidades Implementadas
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. 🎲 Sistema de Dados D20 3D
 
-## Expanding the ESLint configuration
+* **Físicas en Canvas:** Lanzamiento de dados D20 con renderizado 3D.
+* **Sincronización Total:** La semilla (`seed`) del lanzamiento se replica en tiempo real, garantizando que todos los jugadores vean el mismo resultado al mismo tiempo.
+* **Modo Estándar:** Ideal para pruebas de características o salvaciones rápidas.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 2. ⚔️ Sistema de Dados de Daño (Damage Dice)
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+* **Pool Personalizable:** Permite al Game Master configurar una tirada combinada de diferentes dados (d4, d6, d8, d10, d12, d100).
+* **Cálculo Automático:** El sistema suma el resultado total de la tirada incluyendo bonificadores, mostrando el daño total de forma clara y visual para la mesa.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### 3. 🎡 Ruleta del Destino
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+* **Gestión Dinámica:** El GM puede editar las cuñas de la ruleta (nombre, color, texto) en tiempo real para adaptarse a cualquier situación de la partida.
+* **Sincronización de Estado:** El giro, la duración y el resultado final son consistentes para todos los usuarios conectados a la sala.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+---
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## ⚡ Stack Tecnológico
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+* **Frontend:** React, TypeScript, Vite, Tailwind CSS.
+* **Backend:** Firebase Realtime Database (RTDB) para la sincronización de estado en tiempo real.
+* **Lógica:** Implementación de físicas deterministas en Canvas para los dados 3D.
+
+---
+
+## 📄 Licencia
+
+Proyecto de código abierto para uso personal y comunitario en partidas de rol.
+
+---
