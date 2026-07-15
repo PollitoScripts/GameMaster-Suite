@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
-import { Menu, X, Dices, Disc, Swords } from 'lucide-react'; // 👈 Añadimos Swords para los dados de daño
+import { Menu, X, Dices, Disc, Swords, Target } from 'lucide-react'; // 👈 Añadimos Target para Body Combat
 
 export const Sidebar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,8 +9,8 @@ export const Sidebar: React.FC = () => {
   if (!room || !user) return null;
   const isHost = room.hostId === user.id;
 
-  // 👈 Actualizamos el tipado aquí para admitir 'dice-damage'
-  const handleGameChange = async (gameType: 'roulette' | 'dice' | 'dice-damage') => {
+  // 👈 Actualizamos el tipado aquí para admitir 'body-combat'
+  const handleGameChange = async (gameType: 'roulette' | 'dice' | 'dice-damage' | 'body-combat') => {
     if (!isHost) return; // Solo el host cambia el juego global
     await changeActiveGame(gameType);
     setIsOpen(false);
@@ -65,7 +65,7 @@ export const Sidebar: React.FC = () => {
             </div>
           </button>
 
-          {/* ⚔️ NUEVA OPCIÓN: Dados de Daño */}
+          {/* Opción: Dados de Daño */}
           <button
             onClick={() => handleGameChange('dice-damage')}
             disabled={!isHost && room.activeGame !== 'dice-damage'}
@@ -74,6 +74,19 @@ export const Sidebar: React.FC = () => {
             <Swords size={18} />
             <div>
               <p>Dados de Daño y %</p>
+              {!isHost && <span className="text-[9px] text-slate-400 font-normal">Solo lectura</span>}
+            </div>
+          </button>
+
+          {/* 🎯 NUEVA OPCIÓN: Body Combat */}
+          <button
+            onClick={() => handleGameChange('body-combat')}
+            disabled={!isHost && room.activeGame !== 'body-combat'}
+            className={`flex items-center gap-3 w-full p-3 rounded-xl font-bold text-xs transition-all text-left ${room.activeGame === 'body-combat' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white/5 hover:bg-white/10 text-slate-300 disabled:opacity-40'}`}
+          >
+            <Target size={18} />
+            <div>
+              <p>Body Combat</p>
               {!isHost && <span className="text-[9px] text-slate-400 font-normal">Solo lectura</span>}
             </div>
           </button>

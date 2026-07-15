@@ -5,6 +5,8 @@ import { RouletteWheel } from "./components/RouletteWheel";
 import { Dice3D } from "./components/Dice3D.tsx"; // 👈 Tu componente de Canvas / Three.js del dado d20
 import { ControlPanel } from "./components/ControlPanel";
 import { DadosDano } from './components/DadosDano'; // Asegúrate de ajustar la ruta si es necesario
+import { BodyCombatModule } from "./components/BodyCombatModule.tsx";
+import { BodyCombatStage } from "./components/BodyCombatStage";
 
 function App() {
   const { user, room, login, createRoom, joinRoom } = useGame();
@@ -133,26 +135,25 @@ function App() {
               status={room.status} 
               duration={room.duration ?? 1200}
               spinStartAt={room.spinStartAt}
-              mode="d20" // 👈 Avisamos que es modo estándar
+              mode="d20" 
             />
           ) : room.activeGame === 'dice-damage' ? (
-            /* ⚔️ SI ESTAMOS EN DADOS DE DAÑO: */
             room.status === 'spinning' ? (
-              /* Si están rodando en la DB, mostramos el Canvas 3D común */
               <Dice3D 
                 seed={room.diceSeed ?? 0} 
                 results={room.damageResults ?? []} 
                 status={room.status} 
                 duration={room.duration ?? 1200}
                 spinStartAt={room.spinStartAt}
-                mode="damage" // 👈 Avisamos al Canvas que use las caras dinámicas
-                pool={room.damageDiceConfig} // 👈 Le pasamos los tipos de dados tirados
+                mode="damage" 
+                pool={room.damageDiceConfig} 
                 bonus={Number(room.bonus ?? 0)}
               />
             ) : (
-              /* Si la mesa está en reposo ('idle'), mostramos tu panel de selección */
               <DadosDano />
             )
+            ) : room.activeGame === 'body-combat' ? (
+            <BodyCombatStage />
           ) : (
             <RouletteWheel />
           )}

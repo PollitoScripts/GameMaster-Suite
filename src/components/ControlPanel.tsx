@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useGame } from '../context/GameContext';
 import confetti from 'canvas-confetti';
+import { BodyCombatModule } from './BodyCombatModule';
 
 export const ControlPanel: React.FC = () => {
   const { room, user, players, updateWedgesInDb, spinWheel, rollDice, updateGameField } = useGame();
@@ -14,18 +15,18 @@ export const ControlPanel: React.FC = () => {
   const [showResults, setShowResults] = useState(true);
 
   // ── Historial: tab activo ──────────────────────────────────────────────────
-  const [histTab, setHistTab] = useState<'roulette' | 'dice' | 'dice-damage'>('roulette');
+  const [histTab, setHistTab] = useState<'roulette' | 'dice' | 'dice-damage' | 'body-combat'>('roulette');
 
   const animationEndRef = useRef<number | null>(null);
   const dataArrivedRef = useRef<boolean>(false);
 
   const bonus = Number(room?.bonus || 0);
 
-  // Historial sincronizado en tiempo real desde Firebase (via onValue en GameContext)
   const history = {
     roulette:       (room?.history?.roulette       ?? []) as any[],
     dice:           (room?.history?.dice           ?? []) as any[],
     'dice-damage':  (room?.history?.['dice-damage'] ?? []) as any[],
+    'body-combat':  (room?.history?.['body-combat'] ?? []) as any[],
   };
 
   const handleUpdateBonus = async (newBonus: number) => {
@@ -34,8 +35,6 @@ export const ControlPanel: React.FC = () => {
     }
   };
 
-  // Resetea showResults al cambiar de modo para que los resultados
-  // del modo anterior no aparezcan en el nuevo
   useEffect(() => {
     setShowResults(false);
     setIsLocalSpinning(false);
@@ -46,12 +45,10 @@ export const ControlPanel: React.FC = () => {
     dataArrivedRef.current = false;
   }, [room?.activeGame]);
 
-  // Sincroniza el tab del historial con el modo de juego activo
   useEffect(() => {
     if (room?.activeGame) setHistTab(room.activeGame);
   }, [room?.activeGame]);
 
-  // Escucha cambios en diceResults (solo D20)
   useEffect(() => {
     if (!isLocalSpinning) return;
     if (room?.activeGame !== 'dice') return;
@@ -63,7 +60,6 @@ export const ControlPanel: React.FC = () => {
     }
   }, [room?.diceResults]);
 
-  // Escucha cambios en damageResults (solo dados de daño)
   useEffect(() => {
     if (!isLocalSpinning) return;
     if (room?.activeGame !== 'dice-damage') return;
@@ -101,7 +97,6 @@ export const ControlPanel: React.FC = () => {
   const isHost = room.hostId === user.id;
 
   const results = useMemo(() => {
-    // D20: lee exclusivamente de diceResults + diceThresh
     const dice = room.activeGame === 'dice' ? (() => {
       const currentDiceResults = room.diceResults ?? [];
       const currentThresh = room.diceThresh ?? 10;
@@ -115,7 +110,6 @@ export const ControlPanel: React.FC = () => {
       };
     })() : null;
 
-    // Daño: lee exclusivamente de damageResults (campo separado en RTDB)
     const damage = room.activeGame === 'dice-damage' ? (() => {
       const currentDamageResults = room.damageResults ?? [];
       return {
@@ -171,125 +165,86 @@ export const ControlPanel: React.FC = () => {
         </div>
       )}
 
-      {/* ── AJUSTES ──────────────────────────────────────────────────────────── */}
-      <div className="w-full bg-slate-900/60 border border-white/10 rounded-3xl p-6 flex flex-col gap-5 backdrop-blur-md">
-        <div className="flex justify-between items-center">
-          <h3 className="text-sm font-black tracking-wider uppercase bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
-            {room.activeGame === 'dice' 
-              ? 'Ajustes del Sistema D20' 
-              : room.activeGame === 'dice-damage' 
-                ? 'Información de Combate' 
-                : 'Opciones de Ruleta'}
-          </h3>
-          <span className="text-[10px] tracking-wide px-2.5 py-1 bg-white/5 border border-white/10 rounded-full font-bold text-slate-400">
-            {isHost ? '👑 HOST' : '👁️ ESPECTADOR'}
-          </span>
+      {room.activeGame === 'body-combat' && (
+        <div className="w-full">
+          <BodyCombatModule />
         </div>
+      )}
 
-        {room.activeGame === 'dice-damage' ? (
-          <div className="flex flex-col gap-4">
-            <div className="text-xs text-slate-400 py-4 px-3 border border-white/5 bg-slate-950/40 rounded-2xl space-y-2">
-              <p className="font-bold text-slate-300">🎲 Gestión de la Reserva:</p>
-              <p>
-                {isHost 
-                  ? 'Usa el panel central para agregar los dados requeridos según el arma o hechizo empleado.' 
-                  : 'El Director de Juego está calculando los modificadores e indexando los dados a la mesa.'}
-              </p>
-            </div>
-            
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 border border-indigo-500/30 rounded-xl">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Bonus Total</span>
-              <div className="flex items-center gap-4">
-                <span className="font-mono text-lg font-black text-indigo-400 w-8 text-center">+{bonus}</span>
-                
-                {isHost && (
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleUpdateBonus(bonus - 1)} className="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-white font-bold">-</button>
-                    <button onClick={() => handleUpdateBonus(bonus + 1)} className="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-white font-bold">+</button>
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* ── AJUSTES ──────────────────────────────────────────────────────────── */}
+        <div className="w-full bg-slate-900/60 border border-white/10 rounded-3xl p-6 flex flex-col gap-5 backdrop-blur-md">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-black tracking-wider uppercase bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+              {room.activeGame === 'dice' 
+                ? 'Ajustes del Sistema D20' 
+                : room.activeGame === 'dice-damage' 
+                  ? 'Información de Combate' 
+                  : room.activeGame === 'body-combat'
+                    ? 'Sistema V.A.T.S.'
+                    : 'Opciones de Ruleta'}
+            </h3>
+            <span className="text-[10px] tracking-wide px-2.5 py-1 bg-white/5 border border-white/10 rounded-full font-bold text-slate-400">
+              {isHost ? '👑 HOST' : '👁️ ESPECTADOR'}
+            </span>
           </div>
-        ) : isHost ? (
-          <>
-            {room.activeGame === 'dice' ? (
-              <div className="flex flex-col gap-4 bg-slate-950/40 p-4 border border-white/5 rounded-2xl">
-                <div className="grid grid-cols-2 gap-3">
+
+          {isHost ? (
+            <div className="flex flex-col gap-4">
+              {room.activeGame === 'dice-damage' && (
+                <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-4 border border-white/5 rounded-2xl">
                   <div>
                     <label className="text-[10px] text-slate-400 font-black tracking-wide uppercase block mb-1.5">Nº de Dados (D20)</label>
                     <input 
-                      type="number" 
-                      min={1} 
-                      max={12} 
-                      value={localDiceCount} 
+                      type="number" min={1} max={12} value={localDiceCount} 
                       onChange={e => setLocalDiceCount(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-pink-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-xl text-white font-mono text-sm"
                     />
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-400 font-black tracking-wide uppercase block mb-1.5">Dificultad (DT)</label>
                     <input 
-                      type="number" 
-                      min={0} 
-                      max={20} 
-                      value={localDiceThresh} 
+                      type="number" min={0} max={20} value={localDiceThresh} 
                       onChange={e => setLocalDiceThresh(parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-pink-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-xl text-white font-mono text-sm"
                     />
                   </div>
                 </div>
-              </div>
-            ) : room.activeGame === 'roulette' ? (
-              <>
-                <div className="flex gap-2">
-                  <input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="Añadir opción..." className="flex-1 px-4 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white text-xs focus:outline-none" />
-                  <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-10 bg-transparent border-0 cursor-pointer rounded-xl" />
-                  <button onClick={handleAddWedge} className="px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold">✓</button>
-                </div>
-                <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1">
-                  {(room.wedges || []).map(w => (
-                    <div key={w.id} className="flex justify-between items-center p-2.5 bg-slate-950/50 border border-white/5 rounded-xl text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: w.color }} />
-                        <span className="text-slate-300 font-medium">{w.name}</span>
-                      </div>
-                      <button onClick={() => handleRemoveWedge(w.id)} className="text-slate-500 hover:text-rose-400 font-bold px-1">✕</button>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : null}
+              )}
 
-            {room.activeGame === 'dice' && (
-              <button 
-                onClick={handleRollClick} 
-                disabled={isLocalSpinning}
-                className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-black tracking-wider uppercase rounded-xl shadow-xl transition-all active:scale-[0.98] disabled:opacity-20 text-xs"
-              >
-                {isLocalSpinning ? '🎰 Lanzando en Sala...' : `Lanzar ${localDiceCount} Dados 🎲`}
-              </button>
-            )}
+              {room.activeGame === 'roulette' && (
+                <div className="bg-slate-950/40 p-4 border border-white/5 rounded-2xl">
+                  <div className="flex gap-2 mb-2">
+                    <input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="Añadir opción..." className="flex-1 px-4 py-2 bg-slate-900 border border-white/10 rounded-xl text-white text-xs" />
+                    <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-10 bg-transparent border-0 cursor-pointer" />
+                    <button onClick={handleAddWedge} className="px-4 bg-indigo-600 text-white rounded-xl font-bold">✓</button>
+                  </div>
+                </div>
+              )}
 
-            {room.activeGame === 'roulette' && (
-              <button 
-                onClick={spinWheel} 
-                disabled={room.status === 'spinning'} 
-                className="w-full py-4 bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black tracking-wider uppercase rounded-xl shadow-xl transition-all active:scale-[0.98] disabled:opacity-20 text-xs"
-              >
-                {room.status === 'spinning' ? '🎰 Girando...' : 'Girar Ruleta 🎲'}
-              </button>
-            )}
-          </>
-        ) : (
-          <div className="text-xs text-slate-400 text-center py-6 border border-dashed border-white/10 rounded-xl bg-slate-950/20 px-4">
-            {room.activeGame === 'dice' 
-              ? `Esperando que el Host lance los dados. Ajustes: DT fijado en [${localDiceThresh}].` 
-              : 'Solo el creador de la sala puede alterar el tablero y girar la rueda.'
-            }
-          </div>
-        )}
-      </div>
+              {/* Botones de Acción */}
+              {room.activeGame === 'dice' && (
+                <button onClick={handleRollClick} disabled={isLocalSpinning} className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-black uppercase rounded-xl shadow-xl transition-all active:scale-[0.98] disabled:opacity-20 text-xs">
+                  {isLocalSpinning ? '🎰 Lanzando...' : `Lanzar ${localDiceCount} Dados 🎲`}
+                </button>
+              )}
+
+              {room.activeGame === 'roulette' && (
+                <button onClick={spinWheel} disabled={room.status === 'spinning'} className="w-full py-4 bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black uppercase rounded-xl shadow-xl transition-all active:scale-[0.98] disabled:opacity-20 text-xs">
+                  {room.status === 'spinning' ? '🎰 Girando...' : 'Girar Ruleta 🎲'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400 text-center py-6 border border-dashed border-white/10 rounded-xl bg-slate-950/20 px-4">
+              {room.activeGame === 'dice' 
+                ? `Esperando que el Host lance los dados. Ajustes: DT fijado en [${localDiceThresh}].` 
+                : room.activeGame === 'body-combat'
+                  ? 'El host controla el emparejamiento y los roles. Cuando te toque atacar o defender, elige tus zonas arriba.'
+                  : 'Solo el creador de la sala puede alterar el tablero y girar la rueda.'
+              }
+            </div>
+          )}
+        </div>
 
       {/* ── HISTORIAL ─────────────────────────────────────────────────────────── */}
       <div className="w-full bg-slate-900/40 border border-white/10 rounded-3xl p-5 flex flex-col gap-3.5">
@@ -299,7 +254,7 @@ export const ControlPanel: React.FC = () => {
 
         {/* Tabs */}
         <div className="flex gap-1.5">
-          {(['roulette', 'dice', 'dice-damage'] as const).map((tab) => (
+          {(['roulette', 'dice', 'dice-damage', 'body-combat'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setHistTab(tab)}
@@ -309,24 +264,23 @@ export const ControlPanel: React.FC = () => {
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
               }`}
             >
-              {tab === 'roulette' ? '🎡 Ruleta' : tab === 'dice' ? '🎲 D20' : '⚔️ Daño'}
+              {tab === 'roulette' ? '🎡 Ruleta' : tab === 'dice' ? '🎲 D20' : tab === 'dice-damage' ? '⚔️ Daño' : '🥊 Combat'}
             </button>
           ))}
         </div>
 
         {/* Entradas */}
         <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
-          {[...history[histTab]].reverse().length === 0 ? (
+          {[...(history[histTab] || [])].reverse().length === 0 ? (
             <p className="text-xs text-slate-500 text-center py-4 border border-dashed border-white/5 rounded-xl">
-              Sin tiradas todavía
+              Sin entradas todavía
             </p>
           ) : (
-            [...history[histTab]].reverse().map((entry, i) => (
+            [...(history[histTab] || [])].reverse().map((entry, i) => (
               <div
                 key={i}
                 className="bg-slate-950/60 border border-white/5 rounded-xl p-3 flex flex-col gap-1.5"
               >
-                {/* Cabecera: hora + quién */}
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-bold text-indigo-400">
                     {entry.rolledBy ?? 'Host'}
@@ -351,7 +305,6 @@ export const ControlPanel: React.FC = () => {
 
                 {histTab === 'dice' && (
                   <>
-                    {/* Dados individuales */}
                     <div className="flex flex-wrap gap-1">
                       {(entry.results ?? []).map((v: number, j: number) => (
                         <span
@@ -364,13 +317,12 @@ export const ControlPanel: React.FC = () => {
                               : v > (entry.threshold ?? 10)
                               ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                               : 'bg-slate-800 text-slate-400 border border-white/5'
-                            }`}
+                          }`}
                         >
                           {v}
                         </span>
                       ))}
                     </div>
-                    {/* Resumen */}
                     <div className="flex gap-3 text-[10px] text-slate-400 font-mono">
                       <span>DT {entry.threshold}</span>
                       <span className="text-emerald-400 font-bold">
@@ -383,7 +335,6 @@ export const ControlPanel: React.FC = () => {
 
                 {histTab === 'dice-damage' && (
                   <>
-                    {/* Pool de dados */}
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(entry.pool ?? {})
                         .filter(([, cnt]) => (cnt as number) > 0)
@@ -393,7 +344,6 @@ export const ControlPanel: React.FC = () => {
                           </span>
                         ))}
                     </div>
-                    {/* Resultados individuales */}
                     <div className="flex flex-wrap gap-1">
                       {(entry.results ?? []).map((v: number, j: number) => (
                         <span key={j} className="px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-amber-500/10 text-amber-300 border border-amber-500/20">
@@ -401,7 +351,6 @@ export const ControlPanel: React.FC = () => {
                         </span>
                       ))}
                     </div>
-                    {/* Total */}
                     <div className="flex gap-3 text-[10px] font-mono">
                       <span className="text-slate-400">
                         Dados {entry.results?.reduce((a: number, v: number) => a + v, 0)}
@@ -414,6 +363,26 @@ export const ControlPanel: React.FC = () => {
                       </span>
                     </div>
                   </>
+                )}
+                
+                {/* Renderizado para Body Combat */}
+                {histTab === 'body-combat' && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-bold text-white">
+                      ⚔️ {entry.attackerName} → 🛡️ {entry.defenderName}
+                    </span>
+                    {entry.hits && Object.keys(entry.hits).length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(entry.hits).map(([partId, count]) => (
+                          <span key={partId} className="px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-red-500/20 text-red-300 border border-red-500/30">
+                            {partId} ×{count as number}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-emerald-400 font-bold">Defensa perfecta, sin impactos</span>
+                    )}
+                  </div>
                 )}
               </div>
             ))

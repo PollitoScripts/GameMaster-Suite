@@ -24,6 +24,45 @@ interface HistoryEntry {
   total?: number;
   bonus?: number;
   grandTotal?: number;
+  // body-combat
+  attackerName?: string;
+  defenderName?: string;
+  attackChoices?: string[];
+  defenseChoices?: string[];
+  hits?: Record<string, number>;
+}
+
+export const BODY_COMBAT_PARTS = [
+  { id: 'head', label: 'Cabeza' },
+  { id: 'torso', label: 'Torso' },
+  { id: 'left-arm', label: 'Brazo Izq' },
+  { id: 'right-arm', label: 'Brazo Der' },
+  { id: 'left-leg', label: 'Pierna Izq' },
+  { id: 'right-leg', label: 'Pierna Der' }
+];
+
+export interface BodyCombatResult {
+  attackerId: string;
+  defenderId: string;
+  attackerName: string;
+  defenderName: string;
+  attackChoices: string[];
+  defenseChoices: string[];
+  hits: Record<string, number>;
+  resolvedAt: number;
+}
+
+export interface BodyCombatState {
+  opponentId?: string | null;
+  attackerId?: string | null;
+  defenderId?: string | null;
+  maxSelections: number;
+  attackChoices: string[];
+  defenseChoices: string[];
+  attackerReady: boolean;
+  defenderReady: boolean;
+  status: 'setup' | 'selecting' | 'resolved';
+  result?: BodyCombatResult | null;
 }
 
 interface Room {
@@ -31,7 +70,7 @@ interface Room {
   code: string;
   hostId: string;
   status: 'idle' | 'spinning';
-  activeGame: 'roulette' | 'dice' | 'dice-damage';
+  activeGame: 'roulette' | 'dice' | 'dice-damage' | 'body-combat';
   wedges: Wedge[];
   currentRotation: number;
   targetRotation: number;
@@ -45,10 +84,12 @@ interface Room {
   damageDiceConfig?: Record<string, number>; 
   lastResult?: { id?: string; name: string; color: string; firedAt: number };
   players?: Record<string, { name: string; isHost: boolean; online: boolean }>;
+  bodyCombat?: BodyCombatState;
   history?: {
     roulette?: HistoryEntry[];
     dice?: HistoryEntry[];
     'dice-damage'?: HistoryEntry[];
+    'body-combat'?: HistoryEntry[];
   };
 }
 
@@ -62,9 +103,18 @@ interface GameContextType {
   updateWedgesInDb: (wedges: Wedge[]) => Promise<void>;
   updateGameField: (fields: object) => Promise<void>;
   spinWheel: () => Promise<void>;
-  changeActiveGame: (gameType: 'roulette' | 'dice' | 'dice-damage') => Promise<void>;
+  changeActiveGame: (gameType: 'roulette' | 'dice' | 'dice-damage' | 'body-combat') => Promise<void>;
   rollDice: (count: number, threshold: number) => Promise<void>; 
   rollDamageDice: (pool: Record<string, number>) => Promise<void>;
+  // body-combat
+  setBodyCombatOpponent: (opponentId: string) => Promise<void>;
+  setBodyCombatMaxSelections: (max: number) => Promise<void>;
+  setBodyCombatRoles: (attackerId: string, defenderId: string) => Promise<void>;
+  submitBodyCombatChoice: (parts: string[]) => Promise<void>;
+  resolveBodyCombat: () => Promise<void>;
+  resetBodyCombat: () => Promise<void>;
+  bodyCombatDraft: string[];
+  setBodyCombatDraft: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -74,10 +124,26 @@ export const DEFAULT_WEDGES: Wedge[] = [
   { id: 'init-2', name: 'NO', color: '#f43f5e' },
 ];
 
+const DEFAULT_BODY_COMBAT: BodyCombatState = {
+  opponentId: null,
+  attackerId: null,
+  defenderId: null,
+  maxSelections: 3,
+  attackChoices: [],
+  defenseChoices: [],
+  attackerReady: false,
+  defenderReady: false,
+  status: 'setup',
+  result: null,
+};
+
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [players, setPlayers] = useState<any[]>([]);
+  // Selección de zonas en curso (ataque/defensa) — solo local, nunca se escribe
+  // en Firebase hasta confirmar, así el rival no puede verla en tiempo real.
+  const [bodyCombatDraft, setBodyCombatDraft] = useState<string[]>([]);
 
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const diceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); 
@@ -90,13 +156,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // 鈹€鈹€ HISTORIAL 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-  // A帽ade una entrada al historial del modo indicado, manteniendo m谩ximo 10.
-  // Se llama con un setTimeout para que el historial aparezca DESPU脡S
-  // de que la animaci贸n del dado/ruleta haya terminado de mostrarse.
+  // ── HISTORIAL ─────────────────────────────────────────────────────────────
+  // Añade una entrada al historial del modo indicado, manteniendo máximo 10.
+  // Se llama con un setTimeout para que el historial aparezca DESPUÉS
+  // de que la animación del dado/ruleta haya terminado de mostrarse.
   const appendHistory = async (
     roomId: string,
-    mode: 'roulette' | 'dice' | 'dice-damage',
+    mode: 'roulette' | 'dice' | 'dice-damage' | 'body-combat',
     entry: Omit<HistoryEntry, 'timestamp'>
   ) => {
     try {
@@ -110,7 +176,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : Object.values(raw)
         : [];
       const newEntry: HistoryEntry = { ...entry, timestamp: Date.now() };
-      const updated = [...current, newEntry].slice(-10); // 煤ltimas 10
+      const updated = [...current, newEntry].slice(-10); // últimas 10
       await set(histRef, updated);
     } catch (error) {
       console.error(`Error al guardar historial [${mode}]:`, error);
@@ -163,9 +229,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             await update(ref(rtdb, `rooms/${data.id}`), { status: 'idle' });
           } catch (err) {
-            console.error("Error al detener la animaci贸n de los dados:", err);
+            console.error("Error al detener la animación de los dados:", err);
           }
-        }, 10000);
+        }, 3000); // ⏱️ Antes 10000ms: el resultado se quedaba fijo en pantalla 10s
+          // (solo 1200ms son animación) antes de poder volver a configurar y
+          // lanzar de nuevo. Con 3000ms se ve el resultado ~1.8s y se libera antes.
       }
     });
   };
@@ -239,7 +307,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       connectToRoom(roomId);
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: "Error de conexi贸n al intentar unirse." };
+      return { ok: false, error: "Error de conexión al intentar unirse." };
     }
   };
 
@@ -249,7 +317,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const roomWedgesRef = ref(rtdb, `rooms/${room.id}`);
       await update(roomWedgesRef, { wedges });
     } catch (error) {
-      console.error("Error actualizando cu帽as en RTDB:", error);
+      console.error("Error actualizando cuñas en RTDB:", error);
     }
   };
 
@@ -263,19 +331,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const changeActiveGame = async (gameType: 'roulette' | 'dice' | 'dice-damage') => {
+  const changeActiveGame = async (gameType: 'roulette' | 'dice' | 'dice-damage' | 'body-combat') => {
     if (!room || !user || room.hostId !== user.id) return; 
     try {
       const roomRef = ref(rtdb, `rooms/${room.id}`);
       // Al cambiar de modo limpiamos resultados del modo anterior
       // pero el historial se conserva intencionalmente
-      await update(roomRef, { 
+      const updates: Record<string, any> = {
         activeGame: gameType,
         status: 'idle',
         diceResults: [],
         damageResults: [],
         damageDiceConfig: {},
-      });
+      };
+      // Si entramos en Body Combat, arrancamos siempre una ronda nueva y limpia
+      if (gameType === 'body-combat') {
+        updates.bodyCombat = DEFAULT_BODY_COMBAT;
+      }
+      await update(roomRef, updates);
     } catch (error) {
       console.error("Error al cambiar de juego:", error);
     }
@@ -299,7 +372,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
 
-      // Lanzamos la animaci贸n de inmediato
+      // Lanzamos la animación de inmediato
       await update(roomUpdatesRef, {
         status: 'spinning',
         spinStartAt: Date.now(),
@@ -309,8 +382,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         diceThresh: threshold,    
       });
 
-      // El historial se escribe con retraso para que aparezca DESPU脡S
-      // de que el dado haya terminado su animaci贸n y mostrado el resultado
+      // El historial se escribe con retraso para que aparezca DESPUÉS
+      // de que el dado haya terminado su animación y mostrado el resultado
       setTimeout(() => {
         appendHistory(room.id, 'dice', {
           rolledBy: user.name,
@@ -320,7 +393,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           sum,
           diceCount: count,
         });
-      }, 2800);
+      }, 1800); // sincronizado con el nuevo tiempo de resultado (3000ms) en connectToRoom
 
     } catch (error) {
       console.error("Error al lanzar los dados en la RTDB:", error);
@@ -352,7 +425,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const roomUpdatesRef = ref(rtdb, `rooms/${room.id}`);
 
-      // Lanzamos la animaci贸n de inmediato
+      // Lanzamos la animación de inmediato
       await update(roomUpdatesRef, {
         status: 'spinning',
         spinStartAt: Date.now(),
@@ -362,8 +435,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         damageDiceConfig: pool,
       });
 
-      // El historial se escribe con retraso para que aparezca DESPU脡S
-      // de que el dado haya terminado su animaci贸n y mostrado el resultado
+      // El historial se escribe con retraso para que aparezca DESPUÉS
+      // de que el dado haya terminado su animación y mostrado el resultado
       setTimeout(() => {
         appendHistory(room.id, 'dice-damage', {
           rolledBy: user.name,
@@ -373,10 +446,149 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bonus: currentBonus,
           grandTotal,
         });
-      }, 2800);
+      }, 1800); // sincronizado con el nuevo tiempo de resultado (3000ms) en connectToRoom
 
     } catch (error) {
-      console.error("Error al lanzar dados de da帽o en RTDB:", error);
+      console.error("Error al lanzar dados de daño en RTDB:", error);
+    }
+  };
+
+  // ── BODY COMBAT ────────────────────────────────────────────────────────────
+  // El host elige contrincante de entre los jugadores de la sala
+  const setBodyCombatOpponent = async (opponentId: string) => {
+    if (!room || !user || room.hostId !== user.id) return;
+    try {
+      const bcRef = ref(rtdb, `rooms/${room.id}/bodyCombat`);
+      await set(bcRef, {
+        ...DEFAULT_BODY_COMBAT,
+        maxSelections: room.bodyCombat?.maxSelections ?? DEFAULT_BODY_COMBAT.maxSelections,
+        opponentId,
+      });
+    } catch (error) {
+      console.error("Error al elegir contrincante:", error);
+    }
+  };
+
+  const setBodyCombatMaxSelections = async (max: number) => {
+    if (!room || !user || room.hostId !== user.id) return;
+    try {
+      const safeMax = Math.max(1, Math.floor(max) || 1);
+      const bcRef = ref(rtdb, `rooms/${room.id}/bodyCombat`);
+      await update(bcRef, { maxSelections: safeMax });
+    } catch (error) {
+      console.error("Error al fijar el número de golpes:", error);
+    }
+  };
+
+  // El host decide quién ataca y quién defiende entre él mismo y el contrincante elegido
+  const setBodyCombatRoles = async (attackerId: string, defenderId: string) => {
+    if (!room || !user || room.hostId !== user.id) return;
+    if (!attackerId || !defenderId || attackerId === defenderId) return;
+    try {
+      const bcRef = ref(rtdb, `rooms/${room.id}/bodyCombat`);
+      await update(bcRef, {
+        attackerId,
+        defenderId,
+        status: 'selecting',
+        attackChoices: [],
+        defenseChoices: [],
+        attackerReady: false,
+        defenderReady: false,
+        result: null,
+      });
+    } catch (error) {
+      console.error("Error al asignar roles de combate:", error);
+    }
+  };
+
+  // El atacante o el defensor envían sus zonas elegidas (cada uno ve solo las suyas hasta resolver)
+  const submitBodyCombatChoice = async (parts: string[]) => {
+    if (!room || !user || !room.bodyCombat) return;
+    const bc = room.bodyCombat;
+    const max = bc.maxSelections ?? DEFAULT_BODY_COMBAT.maxSelections;
+    const trimmed = parts.slice(0, max);
+
+    try {
+      const bcRef = ref(rtdb, `rooms/${room.id}/bodyCombat`);
+      if (user.id === bc.attackerId) {
+        await update(bcRef, { attackChoices: trimmed, attackerReady: true });
+      } else if (user.id === bc.defenderId) {
+        await update(bcRef, { defenseChoices: trimmed, defenderReady: true });
+      }
+    } catch (error) {
+      console.error("Error al enviar la selección de combate:", error);
+    }
+  };
+
+  // El host resuelve el combate: por cada zona, los golpes que superan a los bloqueos impactan
+  const resolveBodyCombat = async () => {
+    if (!room || !user || room.hostId !== user.id) return;
+    const bc = room.bodyCombat;
+    if (!bc || !bc.attackerId || !bc.defenderId) return;
+
+    try {
+      const attackerName = room.players?.[bc.attackerId]?.name ?? 'Atacante';
+      const defenderName = room.players?.[bc.defenderId]?.name ?? 'Defensor';
+
+      const hits: Record<string, number> = {};
+      BODY_COMBAT_PARTS.forEach(part => {
+        const attackCount = bc.attackChoices.filter(p => p === part.id).length;
+        const defenseCount = bc.defenseChoices.filter(p => p === part.id).length;
+        const netHits = Math.max(0, attackCount - defenseCount);
+        if (netHits > 0) hits[part.id] = netHits;
+      });
+
+      // 🛡️ Firebase RTDB elimina los nodos vacíos: si `hits` queda como {} (defensa
+      // perfecta, ataques == defensas), al guardarlo el objeto vacío no persiste, y al
+      // releer la sala `result.hits` vuelve como `undefined`. Eso rompe Object.keys(...)
+      // y accesos tipo hits['head'] en BodyCombatStage/BodyCombatModule → pantalla en blanco.
+      // Guardamos un marcador para que el objeto nunca esté realmente vacío en la RTDB.
+      const hitsToStore = Object.keys(hits).length > 0 ? hits : { __empty: true };
+
+      const result = {
+        attackerId: bc.attackerId,
+        defenderId: bc.defenderId,
+        attackerName,
+        defenderName,
+        attackChoices: bc.attackChoices,
+        defenseChoices: bc.defenseChoices,
+        hits: hitsToStore,
+        resolvedAt: Date.now(),
+      };
+
+      const bcRef = ref(rtdb, `rooms/${room.id}/bodyCombat`);
+      await update(bcRef, { status: 'resolved', result });
+
+      await appendHistory(room.id, 'body-combat', {
+        rolledBy: user.name,
+        attackerName,
+        defenderName,
+        attackChoices: bc.attackChoices,
+        defenseChoices: bc.defenseChoices,
+        hits: hitsToStore,
+      });
+    } catch (error) {
+      console.error("Error al resolver el combate:", error);
+    }
+  };
+
+  // El host inicia una ronda nueva conservando al mismo contrincante
+  const resetBodyCombat = async () => {
+    if (!room || !user || room.hostId !== user.id) return;
+    try {
+      const bcRef = ref(rtdb, `rooms/${room.id}/bodyCombat`);
+      await update(bcRef, {
+        attackerId: null,
+        defenderId: null,
+        attackChoices: [],
+        defenseChoices: [],
+        attackerReady: false,
+        defenderReady: false,
+        status: 'setup',
+        result: null,
+      });
+    } catch (error) {
+      console.error("Error al reiniciar el combate:", error);
     }
   };
 
@@ -427,7 +639,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           });
 
-          // El historial se escribe con retraso para que aparezca DESPU脡S
+          // El historial se escribe con retraso para que aparezca DESPUÉS
           // del confetti y del banner de resultado en pantalla
           setTimeout(() => {
             appendHistory(room.id, 'roulette', {
@@ -445,6 +657,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    setBodyCombatDraft([]);
+  }, [room?.bodyCombat?.status, room?.bodyCombat?.attackerId, room?.bodyCombat?.defenderId]);
+
+  useEffect(() => {
     return () => {
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
       if (diceTimeoutRef.current) clearTimeout(diceTimeoutRef.current);
@@ -454,7 +670,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <GameContext.Provider value={{ 
       user, room, players, login, createRoom, joinRoom, updateWedgesInDb, updateGameField, spinWheel, 
-      changeActiveGame, rollDice, rollDamageDice
+      changeActiveGame, rollDice, rollDamageDice,
+      setBodyCombatOpponent, setBodyCombatMaxSelections, setBodyCombatRoles,
+      submitBodyCombatChoice, resolveBodyCombat, resetBodyCombat,
+      bodyCombatDraft, setBodyCombatDraft
     }}>
       {children}
     </GameContext.Provider>
